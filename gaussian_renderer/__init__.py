@@ -55,6 +55,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     means2D = screenspace_points
     opacity = pc.get_opacity
 
+    beta = pc.get_beta
+    gamma = pc.get_gamma
+
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
     scales = None
@@ -97,7 +100,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             opacities = opacity,
             scales = scales,
             rotations = rotations,
-            cov3D_precomp = cov3D_precomp)
+            cov3D_precomp = cov3D_precomp,
+            beta = beta,
+            gamma = gamma)
     else:
         rendered_image, radii, depth_image = rasterizer(
             means3D = means3D,
@@ -107,7 +112,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             opacities = opacity,
             scales = scales,
             rotations = rotations,
-            cov3D_precomp = cov3D_precomp)
+            cov3D_precomp = cov3D_precomp,
+            beta = beta,
+            gamma = gamma)
         
     # Apply exposure to rendered image (training only)
     if use_trained_exp:

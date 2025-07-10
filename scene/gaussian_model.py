@@ -65,6 +65,9 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.setup_functions()
 
+        self._beta = nn.Parameter(torch.full((1,), 0.8, device="cuda", dtype=torch.float32, requires_grad=True))
+        self._gamma = nn.Parameter(torch.full((1,), 0.1, device="cuda", dtype=torch.float32, requires_grad=True))
+
     def capture(self):
         return (
             self.active_sh_degree,
@@ -79,6 +82,8 @@ class GaussianModel:
             self.denom,
             self.optimizer.state_dict(),
             self.spatial_lr_scale,
+            self._beta,
+            self._gamma
         )
     
     def restore(self, model_args, training_args):
@@ -93,7 +98,11 @@ class GaussianModel:
         xyz_gradient_accum, 
         denom,
         opt_dict, 
-        self.spatial_lr_scale) = model_args
+        self.spatial_lr_scale,
+        
+        self._beta,
+        self._gamma) = model_args
+        
         self.training_setup(training_args)
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
@@ -132,6 +141,14 @@ class GaussianModel:
     @property
     def get_exposure(self):
         return self._exposure
+
+    @property
+    def get_beta(self):
+        return self._beta
+
+    @property
+    def get_gamma(self):
+        return self._gamma
 
     def get_exposure_from_name(self, image_name):
         if self.pretrained_exposures is None:
@@ -186,7 +203,9 @@ class GaussianModel:
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
+            {'params': [self._beta], 'lr': training_args.beta_lr, "name": "beta"},
+            {'params': [self._gamma], 'lr': training_args.gamma_lr, "name": "gamma"}
         ]
 
         if self.optimizer_type == "default":
@@ -246,6 +265,11 @@ class GaussianModel:
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
+
+        gamma = self._gamma.detach().cpu().numpy()
+        print("gamma:", gamma)
+        beta = self._beta.detach().cpu().numpy()
+        print("beta:", beta)
 
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
@@ -331,6 +355,8 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] in ["beta", "gamma"]:
+                 continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -367,6 +393,10 @@ class GaussianModel:
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
+
+            if group["name"] in ["beta", "gamma"]:
+                 continue
+            
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
